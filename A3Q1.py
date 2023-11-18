@@ -1,10 +1,82 @@
-import scipy 
-import numpy as np 
+from scipy.stats import chi2_contingency
+from statsmodels.stats.multitest import multipletests
 import pandas as pd
-import io 
-import os
+import numpy as np 
 
-def read_vcf(population):
+#function to find the number of homo and heterozygous genotypes in an snp 
+def tally_genotypes(snp_list):
+    g0, g1, g2= 0, 0, 0
+
+    for i in range(len(snp_list)):
+       
+       #homozygous cases
+        if snp_list[i][0] == snp_list[i][1]:
+
+            #homozygous for ref allele (0|0)
+            if snp_list[i][0] == '0':
+                g0 += 1
+
+            #homozygous for alt allele (1|1)
+            elif snp_list[i][0] == '1':
+                g2 += 1
+
+        #heterozygous case (0|1 or 1|0)
+        else:
+            g1 += 1
+
+    return[g0, g1, g2]
+
+#function that calculates the conditional probability of two events
+##CHECK 
+def cond_pbt(a, b, total):
+    return ((a+b)/total) / (b/total)
+
+
+#function that filters a list based on indexes 
+def filter_list(condition, raw):
+
+    #this list will contain the filtered contents 
+    filtered= []
+
+    for i in range(len(condition)):
+        index = condition[i]
+        filtered.append(raw[index])
+
+    return filtered
+
+
+
+def read_vcf(population, genotypes ):
+
+
+    #parse txt file 
+    txt_data = {'IND': [], 'DISEASE': []}   #disease = 1 if there is a disease 
+
+    txt_file= open(genotypes, "r")
+
+    for l in txt_file: 
+        if l.startswith('IND'): 
+
+            fields = l.strip().split('\t')
+
+            txt_data['IND'].append(fields[0][3:])   #only append IND number 
+            txt_data['DISEASE'].append(fields[1])
+
+    txt_file.close()
+
+
+    #separate individuals (IND) into two lists; healthy and sick 
+    healthy = []
+    sick = []
+
+    disease_list = txt_data['DISEASE']
+
+    for i in range(len(disease_list)): 
+        if disease_list[i] == '0':
+            healthy.append(i)
+        else:
+            sick.append(i)
+
 
     #parse vcf file  
 
@@ -20,10 +92,11 @@ def read_vcf(population):
                 header_fields= l.strip().split('\t')
 
                 #take columns after all other fields in dictionary 
-                snp_columns= header_fields[6:]
+                ind_columns= header_fields[6:]
+                
 
                 #initialize to empty list 
-                for col in snp_columns: 
+                for col in ind_columns: 
                     vcf_data[col]= []
 
 
@@ -38,177 +111,147 @@ def read_vcf(population):
                 vcf_data['ALT'].append(fields[4])
                 vcf_data['QUAL'].append(fields[5])
 
-                for i, col in enumerate(snp_columns):
+                for i, col in enumerate(ind_columns):
                     vcf_data[col].append(fields[6+i].split("|"))
-
-    df= pd.DataFrame(vcf_data)
-    return df, snp_columns
-
-def genotype_tally(snp_lst, ref_lst):
-
-    #different genotypes 
-    #g1 = homozygous for reference allele
-    #g2 = heterozygous
-    #g3 = homozygous for alternate allele 
-    g1, g2, g3= 0, 0, 0
-    
-    for i in range(len(snp_lst)): 
-        if i in ref_lst:
-
-            #0|0
-            if (snp_lst[i][0] == '0') and (snp_lst[i][1] == '0'):
-                g1 += 1
-
-            # 0|1 or 1|0 
-            elif snp_lst[i][0] != snp_lst[i][1]: 
-                g2 += 1
             
-            #1|1
-            elif (snp_lst[i][0] == '1') and (snp_lst[i][1] == '1'):
-                g3 += 1
     
-    return [g1, g2, g3]
 
-
-def gwas(df, snp_columns, genotypes):
-
-     #parse txt file 
-    txt_data = {'IND': [], 'DISEASE': []}   #disease = 1 if there is a disease 
+   #extract alleles for each individiual  
     
-    txt_file= open(genotypes, "r")
+    gwas_table = []
+    ind_alleles = []
     
-    for l in txt_file: 
-        if l.startswith('IND'): 
-
-            fields= l.strip().split('\t')
-
-            txt_data['IND'].append(fields[0][3:])   #only append IND number 
-            txt_data['DISEASE'].append(fields[1])
-
-    txt_file.close()
-
-
-    #separate individuals (IND) into two lists; healthy and sick 
-    healthy= []
-    sick= []
-
-    disease_list= txt_data['DISEASE']
-    
-    for i in range(len(disease_list)): 
-        if disease_list[i] == '0':
-           healthy.append(i)
-        else:
-           sick.append(i)
-
-    print("healthy: ", healthy)
-    print("sick: ", sick)
-
-    
-    for col in range((len(snp_columns))):
-      
-        #extract each key 
-        ind_key= snp_columns[col] #ie. snp_columns[1] = IND1
-
-        #IND num 
-       # ind_num= ind_key[3:]
-  
-        #extract each list of chromosomes 
-        snp_lst= df[ind_key]
-
-
+    for col in range(len(ind_columns)):
         
-        #this gives the chromosomes in list form under the COLUMN of IND1, for example 
-        #snp_list[i] = list corresponding to each snp 
-        #so snp_list[1] would give the corresponding ROW of chromosomes in list form (for SNP1, for example)
+        ind_key= ind_columns[col] # gives 'IND1' if col == 1
 
+        #append each individiual's alleles to a matri
+        ind_alleles.append(vcf_data[ind_key])
 
-    #extract genotype numbers for each snp 
-
-    #for col in range(0, 1000):
- 
-        for i in range(len(snp_lst)):
+        #contains the tally numbers for each genotype 
+    
+        #this will give alleles for each snp!!
+        # i represents snp num 
+        # j represents individual
        
-
-            healthy_row =[] 
-            sick_row = [] 
-
-        """
-        table: [    [(SNP1)[healthy],[sick]]
-                    [(SNP2)[healthy],[sick]]
-                                .
-                                .
-                                .
-                    [(SNP1000)[healthy],[sick]]
-        ]
-        
-        """
-
-        if i in healthy: 
-            healthy_row= genotype_tally(snp_lst, healthy)
-        elif i in sick:
-            sick_row= genotype_tally(snp_lst, sick )
-        
-
-    #add both to snp table for that snp 
-    geno_list = [healthy_row, sick_row]
     
-    print(geno_list)
 
-  
+    #ind_alleles contains 10000 snps, each 1000 nums long'
+    for i in range(10000):    #snp number 
+        curr_snp = [] 
+        curr_snp_healthy = []
+        curr_snp_sick = []
+
+        for j in range(len(ind_alleles)):   #individual 
+    
+            if j <= 1000:
+                #sort each snp based on healthy and sick individuals 
+                if j in healthy: 
+                    curr_snp_healthy.append(ind_alleles[i][j])
+                else:
+                    curr_snp_sick.append(ind_alleles[i][j])
+
+            #sum different genotypes for each snp based on if healthy/sick
+            curr_snp.append(tally_genotypes(curr_snp_healthy))
+            curr_snp.append(tally_genotypes(curr_snp_sick))
+       
+            gwas_table.append(curr_snp)
+
+    print(len(gwas_table))
+    return gwas_table
    
 
- 
+#calculate the p-values for each snp and disease
+def p_values(table):
 
-    """#print(vcf_data['IND1'][1]) gives the row, ie. snp_list[1]
+    uncorrected, corrected, num_tests = 0, 0, 0
+    uncorrected_pvals, corrected_pvals, significant_results, odd_ratio_het_list, odd_ratio_alt_list = [], [], [], [], []
 
+    #bonferroni correction; len table = num_tests
+    bonferroni = 0.05/num_tests
 
-        #
-        each individual has 1000 SNPS
-        for each SNP create a table 
-        the "healthy" list is the controls, the "disease" list is the cases 
-        so for EACH SNP (iterate thru SNPS) calculate G1/G2/G3 
-            do this for healthy and sick lists 
+   #num_tests * p < 0.05
+
+    num_tests = 0
+    for i in range(len(table)):
+        for j in range(2):
+
+            #get rid of 0 columns 
+            if table[i][j][0] == 0 or table[i][j][1] == 0:
+                num_tests += 1
         
-        - healthy G1/G2/G3 = first row
-        - sick G1/G2/G3 = second row 
-        - append to same index in table 
+        #calculate pvalue for each snp using chi2_contingecy 
+        pvals = chi2_contingency(table[i])[1]
+        uncorrected_pvals.append(pvals)
+        
 
-
-        #
-
-        #initialize snp_table 
-        snp_table= np.zeros((1000, 2,3), dtype = int)
-       
-        #
-        [ [[healthy1], [sick1]], [[healthy2], [sick2]], ... , [[healthy1000], [sick1000]] ]
-        -> healthy1= [10, 23, 12]
-
-        - outer 1000
-        ie. table[0] = [[healthy1], [sick1]]
-
-        - inner1 2
-        ie. table[0][0] = [healthy1]
-
-        - inner2 3
-        ie. table[0][0][0] = 10 
-    
-
-        geno_results= genotype_tally(snp_columns, snp_lst, healthy, sick)
-
-        for i in range(len(snp_table)):
-            snp_table[i] = geno_results
-
-    #print(snp_table)
-    """
-
-
-
+    #extract number of uncorrected p-values < 0.05
+    for i in range(len(uncorrected_pvals)):
+        if uncorrected_pvals[i] < 0.05: uncorrected += 1
+        
    
+    #now correct p-values
+    #bonferroni correction; len(table) = num tests 
+    corrected_pvals = multipletests(uncorrected_pvals, method= "bonferroni")[1]
+    
+    #extract significant corrected pvals    
+    sig_corrected = []
+
+    for i in range(len(uncorrected_pvals)):
+        if corrected_pvals[i] < bonferroni: 
+            significant_results.append(i)
+            sig_corrected.append(corrected_pvals[i])
+            corrected += 1
+
+    # extract significant uncorrected and corrected pvals 
+    sig_uncorrected = filter_list(significant_results, uncorrected_pvals)
+    
+    #odds_ratio 
+
+    for i in range(len(table)):
+
+        #num sick individuals per snp 
+        sick = sum(table[i][1])
+
+
+        #for each snp, go through healthy and sick lists of genotypes
+        for j in range(len(table)):
+
+            #homo for reference allele 
+            hom_ref = (table[i][0][0] + table[i][1][0]) 
+
+            #hetero
+            het = (table[i][0][1] + table[i][1][1])                                                                                         
+
+            #homo for alt allele
+            hom_alt = (table[i][0][2] + table[i][1][2]) 
+
+            #calculate both pbts
+            odds_ratio_het = cond_pbt(sick, het, 10000) / cond_pbt(sick, het, 10000)
+            odds_ratio_alt = cond_pbt(sick, hom_alt, 10000) / cond_pbt(sick, hom_ref, 10000)
+    
+    
+        #append pbts to lists 
+        odd_ratio_het_list.append(odds_ratio_het)
+        odd_ratio_alt_list.append(odds_ratio_alt)
+
+
+    #create table of significant snp values 
+    snp_data = {"SNP ID": significant_results, 
+                "UNCORRECTED P-VALUE": sig_uncorrected , 
+                "CORRECTED P-VALUE": sig_corrected, 
+                "DISEASE ODDS RATIO FOR HETEROZYGOUS INDIVIDUALS": filter_list(significant_results, odd_ratio_het_list), 
+                "DIESEASE ODDS RATIO FOR HOMOZYGOUS INDIVIDUALS": filter_list(significant_results, odd_ratio_alt_list)}
+    
+    df = pd.DataFrame(snp_data)
+    print(df)
+    print("uncorrected pvalues: ", uncorrected, " corrected pvalues: ", corrected)
+
    
 def main():
 
-    vcf_data, snp_columns = read_vcf("gwas_population.vcf")
-    gwas(vcf_data, snp_columns,  "gwas_phenotypes.txt")
-
+    gwas_table= read_vcf("gwas_population.vcf", "gwas_phenotypes.txt")
+    #p_values(gwas_table)
+    
 if __name__ == "__main__":
     main()
